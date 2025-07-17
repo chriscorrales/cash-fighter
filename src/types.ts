@@ -2,6 +2,7 @@
 export interface HealthCheckResponse {
   failing: boolean;
   minResponseTime: number;
+  processor: 'default' | 'fallback';
 }
 
 export interface PaymentRequest {
