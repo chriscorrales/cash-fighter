@@ -14,7 +14,7 @@ serve({
         if (req.method === 'POST') return handlePayment(req);
         break;
       case '/payments-summary':
-        if (req.method === 'GET') return getSummary(req);
+        if (req.method === 'GET') return getSummary(url);
         break;
       case '/purge-payments':
         if (req.method === 'DELETE') {
@@ -67,12 +67,25 @@ async function deleteAllPayments() {
   await clientRedis.flushAll('ASYNC');
 }
 
-async function getSummary(req: Request): Promise<Response> {
+async function getSummary(url: URL): Promise<Response> {
+  const {searchParams} = url;
+
+  const from = new Date(searchParams.get('from') || '2000-01-01T00:00:00Z').getTime();
+  const to = new Date(searchParams.get('to') || '2900-01-01T00:00:00Z').getTime();
+
+  const countDefault = await clientRedis.zCount('payments:default', from, to);
+  const countFallback = await clientRedis.zCount('payments:fallback', from, to);
+
+  const sumDefault = await clientRedis.zRangeByScoreWithScores('payments:default', from, to);
+  const sumFallback = await clientRedis.zRangeByScoreWithScores('payments:fallback', from, to);
+
+  const totalAmountDefault = sumDefault.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0);
+  const totalAmountFallback = sumFallback.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0);
 
 
   const summary: PaymentsSummaryResponse = {
-    default: { totalRequests: 0, totalAmount: 0 },
-    fallback: { totalRequests: 0, totalAmount: 0 }
+    default: { totalRequests: countDefault, totalAmount: totalAmountDefault },
+    fallback: { totalRequests: countFallback, totalAmount: totalAmountFallback }
   };
 
   return new Response(JSON.stringify(summary), {
