@@ -1,5 +1,5 @@
 import clientRedis from "./database";
-import { PAYMENT_DATA_KEY, PAYMENT_PROCESSOR_URL_DEFAULT, PAYMENT_PROCESSOR_URL_FALLBACK, PAYMENT_QUEUE_KEY } from "./settings";
+import { PAYMENT_PROCESSOR_URL_DEFAULT, PAYMENT_PROCESSOR_URL_FALLBACK, PAYMENT_QUEUE_KEY } from "./settings";
 import type { HealthCheckResponse, PaymentRequest } from "./types";
 
 const HEALTH_CHECK_INTERVAL = 5000; // 5 segundos
@@ -8,7 +8,7 @@ const REDIS_HEALTHCHECK_KEY='payments:health';
 
 
 function toJson(obj: PaymentRequest) {
-  return `{"correlationId":"${obj.correlationId}","amount":${obj.amount},"requestedAt":"${obj.requestedAt}"}`;
+  return `{"correlationId":"${obj.correlationId}","amount":${obj.amount}}`;
 }
 
 while(true) {
@@ -38,8 +38,6 @@ async function processPayment(payment: PaymentRequest) {
   try {
     const processorHealth = await getHealthCheck();
 
-    console.log('Processor health:', processorHealth);
-
     if (processorHealth.failing) {
       await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
       return;
@@ -51,30 +49,21 @@ async function processPayment(payment: PaymentRequest) {
 
     const response = await processPaymentAsync(payment, processorUrl);
 
-    console.log('Payment response:', response);
-
     if (!response) {
-      setTimeout(async () => {
-        await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
-      }, 2000);
-      return;
-    }
-
-    if (response.status >= 200 && response.status < 300) {
-      const score = new Date(payment.requestedAt).getTime();
-      clientRedis.hSet(`${PAYMENT_DATA_KEY}:${processorHealth.processor}:${payment.correlationId}`, payment.correlationId, JSON.stringify(payment))
-
-      clientRedis.zAdd(`payments:${processorHealth.processor}:by_date`, { score, value: payment.correlationId });
-
-      return;
-    }
-
-    setTimeout(async () => {
       await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
-    }, 2000);
+      return;
+    }
+
+    if (response.status === 200) {
+      const score = new Date(payment.requestedAt).getTime();
+      await clientRedis.zAdd(`payments:${processorHealth.processor}`, [{ score, value: `${payment.correlationId}:${payment.amount.toString()}` }]);
+
+      return;
+    }
+
+    await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
     return;
   } catch (error) {
-    console.error('Error processing payment:', error);
     await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
     return;
   }
@@ -84,13 +73,13 @@ async function getHealthCheck(): Promise<HealthCheckResponse> {
   try {
     const healthCache = await clientRedis.get(REDIS_HEALTHCHECK_KEY)
 
-    if (healthCache) {
+    if (healthCache && JSON.parse(healthCache).failing === false) {
       return JSON.parse(healthCache) as HealthCheckResponse;
     }
 
     const defaultRes = await checkProcessorHealth(PAYMENT_PROCESSOR_URL_DEFAULT);
 
-    if (defaultRes.failing || defaultRes.minResponseTime > 700) {
+    if (defaultRes.failing) {
       const fallbackRes = await checkProcessorHealth(PAYMENT_PROCESSOR_URL_FALLBACK)
 
       const objectToSaveFallback = {...fallbackRes, processor: 'fallback'} as HealthCheckResponse;
@@ -106,7 +95,6 @@ async function getHealthCheck(): Promise<HealthCheckResponse> {
 
     return objectToSaveDefault;
   } catch (error) {
-    console.error('Error checking processor health:', error);
 
      await clientRedis.set(REDIS_HEALTHCHECK_KEY, JSON.stringify({ failing: true, minResponseTime: 0, processor: 'fallback' }), {expiration: {type: 'PX', value: HEALTH_CHECK_INTERVAL}})
     return { failing: true, minResponseTime: 0, processor: 'fallback' }
@@ -114,12 +102,14 @@ async function getHealthCheck(): Promise<HealthCheckResponse> {
   }
 }
 
-async function processPaymentAsync(data: PaymentRequest, url: string) {
+function processPaymentAsync(data: PaymentRequest, url: string) {
   try {
+    const bodyArray = new TextEncoder().encode(JSON.stringify(data).replace(/\s+/g, ''));
+
     return fetch(`${url}/payments`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data).replace(/\s+/g, '')
+      body: bodyArray
     });
   } catch (error) {
     console.error('Payment processing failed:', error);

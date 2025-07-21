@@ -30,14 +30,10 @@ serve({
 })
 
 async function handlePayment(req: Request) {
-  const bodyBuffer = await req.arrayBuffer();
-  const bodyArray = new Uint8Array(bodyBuffer);
-  const jsonString = new TextDecoder().decode(bodyArray);
-
-  const compactJson = jsonString.replace(/\s+/g, '');
+  const bodyBuffer = await req.json() as { correlationId: string; amount: number; };
 
   try {
-    clientRedis.lPush(PAYMENT_QUEUE_KEY, compactJson);
+    clientRedis.lPush(PAYMENT_QUEUE_KEY, `{"correlationId":"${bodyBuffer.correlationId}","amount":${bodyBuffer.amount}}`);
 
     return new Response(null, { status: 202 });
   } catch {
