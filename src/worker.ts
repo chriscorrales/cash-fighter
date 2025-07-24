@@ -6,67 +6,28 @@ const HEALTH_CHECK_INTERVAL = 5000; // 5 segundos
 
 const REDIS_HEALTHCHECK_KEY='payments:health';
 
-
-function toJson(obj: PaymentRequest) {
-  return `{"correlationId":"${obj.correlationId}","amount":${obj.amount}}`;
-}
-
 while(true) {
   try {
-    const item = await clientRedis.rPop(PAYMENT_QUEUE_KEY);
+    const item = await clientRedis.rPopCount(PAYMENT_QUEUE_KEY, 120);
 
-    if (!item) {
+    if (!item || item?.length === 0) {
       continue;
     }
 
-    const payment = JSON.parse(item) as PaymentRequest;
+    const processorHealth = await getHealthCheck();
 
-    await processPayment(payment);
+    await batchProcessPayment(item, processorHealth.processor);
   } catch (err) {
     await new Promise((r) => setTimeout(r, 100));
   }
 }
 
-async function checkProcessorHealth(url?: string): Promise<HealthCheckResponse> {
-  const response = await fetch(`${url}/payments/service-health`);
+async function batchProcessPayment(payments: string[], processor: 'default' | 'fallback' = 'default') {
+  const promises = payments.map(payment => processPaymentAsync(payment, processor));
 
-  return response.json() as Promise<HealthCheckResponse>;
-}
+  const results = await Promise.allSettled(promises);
 
 
-async function processPayment(payment: PaymentRequest) {
-  try {
-    const processorHealth = await getHealthCheck();
-
-    if (processorHealth.failing) {
-      await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
-      return;
-    }
-
-    const processorUrl = processorHealth.processor === 'default' ? PAYMENT_PROCESSOR_URL_DEFAULT : PAYMENT_PROCESSOR_URL_FALLBACK;
-
-    payment.requestedAt = new Date().toISOString();
-
-    const response = await processPaymentAsync(payment, processorUrl);
-
-    if (!response) {
-      await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
-      return;
-    }
-
-    if (response.status === 200) {
-      const score = new Date(payment.requestedAt).getTime();
-      await clientRedis.zAdd(`payments:${processorHealth.processor}`, [{ score, value: `${payment.correlationId}:${payment.amount.toString()}` }]);
-
-      return;
-    }
-
-    await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
-    return;
-  } catch (error) {
-    await clientRedis.rPush(PAYMENT_QUEUE_KEY, toJson(payment));
-    return;
-  }
 }
 
 async function getHealthCheck(): Promise<HealthCheckResponse> {
@@ -95,23 +56,44 @@ async function getHealthCheck(): Promise<HealthCheckResponse> {
 
     return objectToSaveDefault;
   } catch (error) {
-
-     await clientRedis.set(REDIS_HEALTHCHECK_KEY, JSON.stringify({ failing: true, minResponseTime: 0, processor: 'fallback' }), {expiration: {type: 'PX', value: HEALTH_CHECK_INTERVAL}})
+    await clientRedis.set(REDIS_HEALTHCHECK_KEY, JSON.stringify({ failing: true, minResponseTime: 0, processor: 'fallback' }), {expiration: {type: 'PX', value: HEALTH_CHECK_INTERVAL}})
     return { failing: true, minResponseTime: 0, processor: 'fallback' }
     ;
   }
 }
 
-function processPaymentAsync(data: PaymentRequest, url: string) {
-  try {
-    const bodyArray = new TextEncoder().encode(JSON.stringify(data).replace(/\s+/g, ''));
+async function checkProcessorHealth(url?: string): Promise<HealthCheckResponse> {
+  const response = await fetch(`${url}/payments/service-health`);
 
-    return fetch(`${url}/payments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: bodyArray
-    });
-  } catch (error) {
-    console.error('Payment processing failed:', error);
+  return response.json() as Promise<HealthCheckResponse>;
+}
+
+
+async function processPaymentAsync(data: string, processor: 'default' | 'fallback') {
+  const processorUrl = processor === 'default' ? PAYMENT_PROCESSOR_URL_DEFAULT : PAYMENT_PROCESSOR_URL_FALLBACK;
+  const requestedAt = new Date();
+
+  const {ok} = await fetch(`${processorUrl}/payments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: data.replace('}', `,"requestedAt":"${requestedAt.toISOString()}"}`),
+  });
+
+  if (ok) {
+
+    const score = requestedAt.getTime();
+
+    const payment = JSON.parse(data) as PaymentRequest;
+
+    await clientRedis.zAdd(`payments:${processor}`, [{ score, value: `${payment.correlationId}:${payment.amount.toString()}` }]);
+
+    return;
   }
+
+  if (processor === 'default') {
+    return processPaymentAsync(data, 'fallback');
+  }
+
+  await clientRedis.rPush(PAYMENT_QUEUE_KEY, data);
+  return;
 }

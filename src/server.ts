@@ -75,13 +75,13 @@ async function getSummary(url: URL): Promise<Response> {
   const sumDefault = await clientRedis.zRangeByScoreWithScores('payments:default', from, to);
   const sumFallback = await clientRedis.zRangeByScoreWithScores('payments:fallback', from, to);
 
-  const totalAmountDefault = sumDefault.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0);
-  const totalAmountFallback = sumFallback.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0);
+  const totalAmountDefault = sumDefault.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0).toFixed(2);
+  const totalAmountFallback = sumFallback.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0).toFixed(2);
 
 
   const summary: PaymentsSummaryResponse = {
-    default: { totalRequests: countDefault, totalAmount: totalAmountDefault },
-    fallback: { totalRequests: countFallback, totalAmount: totalAmountFallback }
+    default: { totalRequests: countDefault, totalAmount: Number(totalAmountDefault) },
+    fallback: { totalRequests: countFallback, totalAmount: Number(totalAmountFallback) }
   };
 
   return new Response(JSON.stringify(summary), {
