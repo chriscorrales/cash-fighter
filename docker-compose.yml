@@ -2,7 +2,7 @@ services:
   api1: &api
     build:
       context: .
-      dockerfile: ./Dockerfile
+      dockerfile: ./Dockerfile-api
     command: bun src/server.ts
     hostname: api1
     networks:
@@ -28,7 +28,7 @@ services:
   worker1: &worker
     build:
       context: .
-      dockerfile: ./Dockerfile
+      dockerfile: ./Dockerfile-worker
     command: bun src/worker.ts
     networks:
       - backend
