@@ -1,6 +1,9 @@
 name: Build a Docker Image for API
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:

@@ -1,21 +1,22 @@
 // src/types.ts
-export interface HealthCheckResponse {
-  failing: boolean;
-  minResponseTime: number;
-  processor: 'default' | 'fallback';
-}
-
-export interface PaymentRequest {
+export type Payment = {
   correlationId: string;
   amount: number;
   requestedAt: string;
 }
 
-export interface PaymentResponse {
+
+export type HealthCheckResponse =  {
+  failing: boolean;
+  minResponseTime: number;
+  processor: 'default' | 'fallback';
+}
+
+export type PaymentResponse =  {
   message: string;
 }
 
-export interface PaymentsSummaryResponse {
+export type PaymentsSummaryResponse = {
   default: {
     totalRequests: number;
     totalAmount: number;
