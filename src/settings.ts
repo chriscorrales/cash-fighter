@@ -6,5 +6,6 @@ export const PAYMENT_PROCESSOR_URL_FALLBACK = process.env.PAYMENT_PROCESSOR_URL_
 
 // Redis configuration
 export const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+export const REDIS_HOST = process.env.REDIS_HOST || 'redis';
 export const PAYMENT_QUEUE_KEY = 'payments:queue';
 export const PAYMENT_DATA_KEY = 'payments';

@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile-api
-    command: bun src/server.ts
     hostname: api1
     networks:
       - backend
@@ -29,7 +28,6 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile-worker
-    command: bun src/worker.ts
     networks:
       - backend
       - payment-processor

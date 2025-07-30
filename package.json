@@ -15,6 +15,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "ioredis": "^5.6.1",
     "redis": "^5.6.0"
   }
 }

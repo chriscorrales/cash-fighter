@@ -1,33 +1,27 @@
 import clientRedis from "./database";
 import { PAYMENT_PROCESSOR_URL_DEFAULT, PAYMENT_PROCESSOR_URL_FALLBACK, PAYMENT_QUEUE_KEY } from "./settings";
-import type { HealthCheckResponse, PaymentRequest } from "./types";
+import type { HealthCheckResponse, Payment } from "./interfaces/types";
 
 const HEALTH_CHECK_INTERVAL = 5000; // 5 segundos
 
 const REDIS_HEALTHCHECK_KEY='payments:health';
 
 while(true) {
-  try {
-    const item = await clientRedis.rPopCount(PAYMENT_QUEUE_KEY, 120);
+  const item = await clientRedis.rPopCount(PAYMENT_QUEUE_KEY, 100);
 
-    if (!item || item?.length === 0) {
-      continue;
-    }
-
-    const processorHealth = await getHealthCheck();
-
-    await batchProcessPayment(item, processorHealth.processor);
-  } catch (err) {
-    await new Promise((r) => setTimeout(r, 100));
+  if (!item || item?.length === 0) {
+    continue;
   }
+
+  const processorHealth = await getHealthCheck();
+
+  await batchProcessPayment(item, processorHealth.processor);
 }
 
 async function batchProcessPayment(payments: string[], processor: 'default' | 'fallback' = 'default') {
   const promises = payments.map(payment => processPaymentAsync(payment, processor));
 
-  const results = await Promise.allSettled(promises);
-
-
+  await Promise.allSettled(promises);
 }
 
 async function getHealthCheck(): Promise<HealthCheckResponse> {
@@ -83,7 +77,7 @@ async function processPaymentAsync(data: string, processor: 'default' | 'fallbac
 
     const score = requestedAt.getTime();
 
-    const payment = JSON.parse(data) as PaymentRequest;
+    const payment = JSON.parse(data) as Payment;
 
     await clientRedis.zAdd(`payments:${processor}`, [{ score, value: `${payment.correlationId}:${payment.amount.toString()}` }]);
 
