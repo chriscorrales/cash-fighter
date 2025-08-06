@@ -1,12 +1,14 @@
-import clientRedis from "./database";
-import { PAYMENT_QUEUE_KEY, PAYMENT_PROCESSOR_URL_DEFAULT, PAYMENT_PROCESSOR_URL_FALLBACK } from "./settings";
-import type { PaymentsSummaryResponse } from "./interfaces/types";
+import { PAYMENT_PROCESSOR_URL_DEFAULT, PAYMENT_PROCESSOR_URL_FALLBACK } from "./settings";
+import type { Payment, PaymentsSummaryResponse } from "./interfaces/types";
+import type { DatabaseInterface } from "./services/Database/interface";
+import type { Publisher } from "./services/Publishers/interface";
 
 export class RoutesServer {
+  constructor(private publisher: Publisher<string>, private database: DatabaseInterface<Payment>) {
+  }
+
   public async fetch(req: Request) {
     const url = new URL(req.url);
-
-    console.log(`Request received: ${url.pathname} ${req.method}`);
 
     const { pathname, searchParams } = url;
     const { method } = req;
@@ -27,10 +29,10 @@ export class RoutesServer {
   }
 
   private async handleRequest(req: Request) {
-    const bodyBuffer = await req.json() as { correlationId: string; amount: number; };
+    const bodyBuffer = await req.text();
 
     try {
-      clientRedis.lPush(PAYMENT_QUEUE_KEY, `{"correlationId":"${bodyBuffer.correlationId}","amount":${bodyBuffer.amount}}`);
+      await this.publisher.leftPush(bodyBuffer)
 
       return new Response(null, { status: 202 });
     } catch {
@@ -43,15 +45,17 @@ export class RoutesServer {
     const from = new Date(searchParams.get('from') || '2000-01-01T00:00:00Z').getTime();
     const to = new Date(searchParams.get('to') || '2900-01-01T00:00:00Z').getTime();
 
-    const countDefault = await clientRedis.zCount('payments:default', from, to);
-    const countFallback = await clientRedis.zCount('payments:fallback', from, to);
+    const countDefault = await this.database.countFromRangeDate(from, to, 'default');
+    const countFallback = await this.database.countFromRangeDate(from, to, 'fallback');
 
-    const sumDefault = await clientRedis.zRangeByScoreWithScores('payments:default', from, to);
-    const sumFallback = await clientRedis.zRangeByScoreWithScores('payments:fallback', from, to);
 
-    const totalAmountDefault = sumDefault.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0).toFixed(2);
-    const totalAmountFallback = sumFallback.reduce((acc, item) => acc + parseFloat(item.value.split(':')[1] || '0'), 0).toFixed(2);
+    const sumDefault = await this.database.findAllAmountFromRangeDate(from, to, 'default');
+    const sumFallback = await this.database.findAllAmountFromRangeDate(from, to, 'fallback');
 
+    // console.log({sumDefault, sumFallback})
+
+    const totalAmountDefault = sumDefault.reduce((acc, item) => acc + item, 0).toFixed(2);
+    const totalAmountFallback = sumFallback.reduce((acc, item) => acc + item, 0).toFixed(2);
 
     const summary: PaymentsSummaryResponse = {
       default: { totalRequests: countDefault, totalAmount: Number(totalAmountDefault) },
@@ -64,7 +68,7 @@ export class RoutesServer {
   }
 
   private async purgePayments() {
-    await clientRedis.flushAll('ASYNC');
+    await this.database.cleanAllData();
 
     await fetch(`${PAYMENT_PROCESSOR_URL_DEFAULT}/admin/purge-payments`, {
       method: 'POST',
