@@ -1,5 +1,5 @@
-import { Redis, type RedisOptions } from "ioredis";
-import type { DatabaseInterface } from "./interface";
+import { Redis, type ChainableCommander, type RedisOptions } from "ioredis";
+import type { DatabaseInterface, DatabaseWriteInterface } from "./interface";
 import type { Payment } from "../../interfaces/types";
 import { REDIS_HOST } from "../../settings";
 
@@ -23,8 +23,6 @@ export class RedisDatabase implements DatabaseInterface<Payment> {
   public async findAllAmountFromRangeDate(from: number, to: number, processor: 'default' | 'fallback') {
     const values = await this.redis.zrangebyscore(`payments:${processor}`, from, to);
 
-    console.log('values', values);
-
     return values.map((v) => Number(v.split(':')[1]));
   };
 
@@ -33,7 +31,7 @@ export class RedisDatabase implements DatabaseInterface<Payment> {
 
     const score = requestedAt.getTime()
 
-    await this.redis.zadd(`payments:${processor}:${correlationId}`, score, `${amount}:`);
+    await this.redis.zadd(`payments:${processor}`, score, `${correlationId}:${amount}`);
   }
 
   public async cleanAllData() {
