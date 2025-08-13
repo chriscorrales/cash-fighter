@@ -1,5 +1,5 @@
-import { Redis, type ChainableCommander, type RedisOptions } from "ioredis";
-import type { DatabaseInterface, DatabaseWriteInterface } from "./interface";
+import { Redis, type RedisOptions } from "ioredis";
+import type { DatabaseInterface } from "./interface";
 import type { Payment } from "../../interfaces/types";
 import { REDIS_HOST } from "../../settings";
 

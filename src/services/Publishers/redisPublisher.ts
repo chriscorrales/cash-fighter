@@ -1,4 +1,4 @@
-import { Redis, type ChainableCommander, type RedisOptions } from "ioredis";
+import { Redis, type RedisOptions } from "ioredis";
 import { REDIS_HOST } from "../../settings";
 import type { Publisher } from "./interface";
 

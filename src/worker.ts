@@ -1,22 +1,13 @@
 import { PAYMENT_PROCESSOR_URL_DEFAULT, PAYMENT_PROCESSOR_URL_FALLBACK, PAYMENT_QUEUE_KEY } from "./settings";
 import type { Payment } from "./interfaces/types";
-import { StrategyHealthCheck } from "./useCases/StrategyHealthCheck/StrategyHealthCheck";
-import { RedisCache } from "./services/Cache/redisCache";
 import { RedisDatabase } from "./services/Database/redisDatabase";
 import { RedisPublisher } from "./services/Publishers/redisPublisher";
 import { RedisConsumer } from "./services/Consumers/redisConsumer";
 
-const HEALTH_CHECK_INTERVAL = 5000;
-
-const REDIS_HEALTHCHECK_KEY='payments:health';
-
-const redisCache = new RedisCache(REDIS_HEALTHCHECK_KEY, HEALTH_CHECK_INTERVAL);
 const redisDatabase = new RedisDatabase();
 
 const redisPublisher = new RedisPublisher();
 const redisConsumer = new RedisConsumer();
-
-const strategyHealthCheck = new StrategyHealthCheck(redisCache);
 
 while(true) {
   const item = await redisConsumer.pop(100);
@@ -25,9 +16,7 @@ while(true) {
     continue;
   }
 
-  const processorHealth = await strategyHealthCheck.getHealthCheck();
-
-  await batchProcessPayment(item, processorHealth.processor);
+  await batchProcessPayment(item, 'default');
 }
 
 async function batchProcessPayment(payments: string[], processor: 'default' | 'fallback' = 'default') {

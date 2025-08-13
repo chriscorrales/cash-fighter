@@ -40,4 +40,8 @@ jobs:
       - name: Run Semantic Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bun semantic-release
+        run: bun semantic-release -b main
+
+      - name: Set Tag
+        id: tag
+        run: echo "tag=$(git describe --tags $(git rev-list --tags --max-count=1))" >> $GITHUB_OUTPUT
